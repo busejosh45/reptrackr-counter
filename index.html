@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RepTrackr Throw Counter</title>
+<style>
+:root{color-scheme:dark}body{margin:0;background:#111;color:#eee;font:15px -apple-system,system-ui,sans-serif}
+header{display:flex;gap:12px;align-items:center;padding:10px 14px;background:#1b1b1b;flex-wrap:wrap}
+main{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:12px;padding:12px}
+video{width:100%;max-height:76vh;background:#000;border-radius:6px}
+video.r90{transform:rotate(90deg)}video.r180{transform:rotate(180deg)}video.r270{transform:rotate(270deg)}
+.side{display:flex;flex-direction:column;gap:8px}
+.count{font-size:90px;font-weight:700;text-align:center;line-height:1;padding:14px 0;background:#1b1b1b;border-radius:8px}
+.count small{display:block;font-size:13px;font-weight:400;color:#999;margin-top:6px}
+button{background:#2a2a2a;color:#eee;border:1px solid #444;border-radius:6px;padding:8px 10px;font-size:14px;cursor:pointer}
+button.big{font-size:40px;font-weight:800;padding:40px 0;touch-action:manipulation;background:#1f6f3f;border-color:#2c8f52}
+.row{display:flex;gap:6px}.row button{flex:1}.on{background:#555!important;border-color:#aaa!important}
+#queue{max-height:18vh;overflow:auto;background:#161616;border-radius:6px;padding:4px;font-size:13px}
+#queue div{padding:3px 6px;cursor:pointer;border-radius:4px}#queue div.cur{background:#2c3e50}#queue .done{color:#8c8}
+#times{max-height:14vh;overflow:auto;font:12px ui-monospace,monospace;color:#aaa;background:#161616;padding:6px;border-radius:6px}
+.keys{color:#999;font-size:12px;line-height:1.6}.keys b{color:#ddd}#status{color:#8c8;font-size:13px}
+textarea{width:100%;box-sizing:border-box;background:#161616;color:#ddd;border:1px solid #333;border-radius:6px}
+@media(max-width:800px){main{grid-template-columns:1fr}video{max-height:45vh}}
+.steps{display:flex;gap:10px;flex-wrap:wrap;padding:12px 14px;background:#0d2a1a;font-size:18px}
+.steps div{flex:1;min-width:220px;background:#143d26;border-radius:8px;padding:10px}.steps b{font-size:24px;color:#7f7;margin-right:6px}
+header input{font-size:18px;padding:8px}details{background:#161616;border-radius:6px;padding:6px}summary{cursor:pointer;color:#aaa}
+</style></head><body>
+<div class="steps"><div><b>1</b>Type your name</div><div><b>2</b>Choose your video file</div><div><b>3</b>Press <b style="font-size:18px">Space</b> or tap <b style="font-size:18px">THROW</b> every time the ball leaves the stick</div><div><b>4</b>Tap <b style="font-size:18px">Done</b>, then <b style="font-size:18px">Download my counts</b> and upload the files to the "counts" folder</div></div>
+<header>
+<label><b>1.</b> Your name <input id="who" type="text" placeholder="first name" size="10"></label>
+<label><b>2.</b> Video file(s) <input id="vid" type="file" accept="video/*,.mov,.mp4" multiple></label>
+<span id="status">Your videos stay on your device — nothing is uploaded.</span>
+</header>
+<main><div><video id="v" controls playsinline preload="auto"></video></div>
+<div class="side">
+<div class="count"><span id="n">0</span><small id="name">no video loaded</small></div>
+<button class="big" id="tap">THROW</button>
+<div class="row"><button id="undo">Undo (Z)</button><button id="back">−2s (←)</button><button id="fwd">+2s (→)</button><button id="play">Play (P)</button></div>
+<details><summary>More options (speed, set start/end, rotate)</summary><div class="row"><button id="sStart">Set start ([)</button><button id="sEnd">Set end (])</button><button id="rot">Rotate (O)</button></div>
+<div class="row speed"><button data-r="0.5">0.5x</button><button data-r="1" class="on">1x</button><button data-r="1.5">1.5x</button><button data-r="2">2x</button></div>
+<div id="setinfo" style="font-size:12px;color:#aaa">Set start: – &nbsp; end: –</div></details>
+<textarea id="notes" rows="2" placeholder="Notes (anything odd about this video)"></textarea>
+<div class="row"><button id="finish">✅ Done with this video (N)</button></div>
+<div class="row"><button id="exp">⬇ Download my counts</button><button id="reset">Reset video</button></div>
+<div id="queue"></div><div id="times"></div>
+<div class="keys"><b>Space</b> throw &nbsp;<b>Z</b> undo &nbsp;<b>P</b> play/pause &nbsp;<b>← →</b> ±2s &nbsp;<b>1 2 3 4</b> speed 0.5/1/1.5/2x &nbsp;<b>[ ]</b> set start/end &nbsp;<b>O</b> rotate &nbsp;<b>N</b> done+next<br>
+Tap when the ball LEAVES the stick, every throw at the wall (even misses). Not fakes, pickups, or other people.</div>
+</div></main>
+<script>
+const $=id=>document.getElementById(id),v=$("v"),P="rtcount:";
+let files=[],cur=-1,rec=null;
+const who=()=>$("who").value.trim();
+const vname=f=>f.name.replace(/\.[^.]+$/,"");
+const key=n=>P+who().toLowerCase()+":"+n;
+function load(n){try{return JSON.parse(localStorage.getItem(key(n)))}catch(e){return null}}
+function blank(n){return{video:n,counter:who(),times:[],setStart:null,setEnd:null,notes:"",done:false,duration:null}}
+function save(){if(rec&&who()){rec.notes=$("notes").value;rec.duration=isFinite(v.duration)?+v.duration.toFixed(2):rec.duration;localStorage.setItem(key(rec.video),JSON.stringify(rec))}}
+function f2(t){return t==null?"–":t.toFixed(2)+"s"}
+function render(){if(!rec)return;$("n").textContent=rec.times.length;$("name").textContent=rec.video+(rec.done?" (done)":"");
+$("times").innerHTML=rec.times.map((t,i)=>`${String(i+1).padStart(3)}  ${t.toFixed(2)}s`).reverse().join("<br>");
+$("setinfo").textContent=`Set start: ${f2(rec.setStart)}   end: ${f2(rec.setEnd)}`;
+$("queue").innerHTML=files.map((f,i)=>{const r=load(vname(f));return`<div data-i="${i}" class="${i===cur?"cur":""} ${r&&r.done?"done":""}">${r&&r.done?"✓":"•"} ${vname(f)} ${r?"("+r.times.length+")":""}</div>`}).join("");
+$("queue").querySelectorAll("div").forEach(d=>d.onclick=()=>open(+d.dataset.i));save()}
+function open(i){if(!who()){$("status").textContent="Type your name first.";$("who").focus();return}
+save();cur=i;const f=files[i];rec=load(vname(f))||blank(vname(f));v.src=URL.createObjectURL(f);v.playbackRate=1;speedUI(1);$("notes").value=rec.notes||"";
+$("status").textContent=rec.times.length?`Restored ${rec.times.length} taps for ${rec.video}.`:`Loaded ${rec.video}. Press P to play.`;render();$("tap").focus()}
+$("vid").onchange=e=>{e.target.blur();files=[...e.target.files].sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+let i=files.findIndex(f=>!(load(vname(f))||{}).done);open(i<0?0:i)};
+$("who").onchange=()=>{localStorage.setItem(P+"lastCounter",who());if(cur>=0)open(cur)};
+try{const l=localStorage.getItem(P+"lastCounter");if(l)$("who").value=l}catch(e){}
+function tap(){if(!rec)return;rec.times.push(+v.currentTime.toFixed(3));render();$("tap").style.background="#2c8f52";setTimeout(()=>$("tap").style.background="",120)}
+function undo(){if(rec){rec.times.pop();render()}}
+function seek(d){v.currentTime=Math.max(0,v.currentTime+d)}
+function speedUI(r){document.querySelectorAll(".speed button").forEach(b=>b.classList.toggle("on",+b.dataset.r===r))}
+function speed(r){v.playbackRate=r;speedUI(r)}
+function pp(){v.paused?v.play():v.pause()}
+let rot=0;function rotate(){rot=(rot+90)%360;v.className=rot?"r"+rot:""}
+function finish(){if(!rec)return;rec.done=true;save();
+const j=JSON.stringify({video:rec.video,counter:rec.counter,countedAt:new Date().toISOString(),total:rec.times.length,throwTimesVideoSec:rec.times,videoDurationSec:rec.duration,setStartSec:rec.setStart,setEndSec:rec.setEnd,notes:rec.notes});
+localStorage.setItem(P+"export:"+who().toLowerCase()+":"+rec.video,j);
+$("status").textContent=`Saved ${rec.video}: ${rec.times.length} throws.`;
+const nx=files.findIndex((f,i)=>i>cur&&!(load(vname(f))||{}).done);if(nx>=0)open(nx);else{render();$("status").textContent+=" All picked videos done – click Export CSV."}}
+function q(s){s=s==null?"":String(s);return/[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s}
+function allRecs(){const me=who().toLowerCase(),out=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k.startsWith(P+me+":"))out.push(JSON.parse(localStorage.getItem(k)))}
+return out.sort((a,b)=>a.video.localeCompare(b.video,undefined,{numeric:true}))}
+function buildCSV(rs){const H="video_name,labeler,rep_index,timestamp_sec,set_start,set_end,total_reps,notes";
+const d=[H],s=["video_name,labeler,total_reps,set_start,set_end,duration_sec,done,notes"];
+for(const r of rs){const n=r.times.length;if(!n)d.push([r.video,r.counter,0,"",r.setStart??"",r.setEnd??"",0,r.notes].map(q).join(","));
+r.times.forEach((t,i)=>d.push([r.video,r.counter,i+1,t,r.setStart??"",r.setEnd??"",n,r.notes].map(q).join(",")));
+s.push([r.video,r.counter,n,r.setStart??"",r.setEnd??"",r.duration??"",r.done?"yes":"no",r.notes].map(q).join(","))}
+return{detail:d.join("\n")+"\n",summary:s.join("\n")+"\n"}}
+function dl(name,text){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type:"text/csv"}));a.download=name;document.body.appendChild(a);a.click();a.remove()}
+function exportCSV(){if(!who()){$("status").textContent="Type your name first.";return}save();const c=buildCSV(allRecs()),w=who().replace(/\W+/g,"_"),dt=new Date().toISOString().slice(0,10);
+dl(`counts_${w}_${dt}.csv`,c.detail);setTimeout(()=>dl(`summary_${w}_${dt}.csv`,c.summary),300);$("status").textContent="Exported 2 CSV files to Downloads. Upload them to the 'counts' folder."}
+$("tap").onclick=tap;$("tap").onkeydown=e=>{if(e.key===" "||e.key==="Enter")e.preventDefault()};
+$("undo").onclick=undo;$("back").onclick=()=>seek(-2);$("fwd").onclick=()=>seek(2);$("play").onclick=pp;$("rot").onclick=rotate;
+$("sStart").onclick=()=>{if(rec){rec.setStart=+v.currentTime.toFixed(2);render()}};$("sEnd").onclick=()=>{if(rec){rec.setEnd=+v.currentTime.toFixed(2);render()}};
+document.querySelectorAll(".speed button").forEach(b=>b.onclick=()=>speed(+b.dataset.r));
+$("finish").onclick=finish;$("exp").onclick=exportCSV;$("notes").oninput=save;
+$("reset").onclick=()=>{if(rec&&confirm(`Clear ${rec.times.length} taps for ${rec.video}?`)){Object.assign(rec,blank(rec.video));$("notes").value="";render()}};
+document.addEventListener("keydown",e=>{const t=e.target;if(t.tagName==="TEXTAREA"||(t.tagName==="INPUT"&&t.type==="text"))return;const k=e.key;
+if(e.repeat){if([" ","ArrowLeft","ArrowRight"].includes(k))e.preventDefault();return}
+if(k===" "){e.preventDefault();tap()}else if(k==="z"||k==="Z"||k==="u"||k==="U"||k==="Backspace"){e.preventDefault();undo()}
+else if(k==="ArrowLeft"){e.preventDefault();seek(-2)}else if(k==="ArrowRight"){e.preventDefault();seek(2)}
+else if(k==="p"||k==="P"||k==="k"||k==="K")pp();else if(k==="o"||k==="O")rotate();else if(k==="n"||k==="N")finish();
+else if(k==="[")$("sStart").click();else if(k==="]")$("sEnd").click();else if(["1","2","3","4"].includes(k))speed([0.5,1,1.5,2][+k-1])});
+window.addEventListener("beforeunload",save);
+window.__test={buildCSV,q};
+</script></body></html>
